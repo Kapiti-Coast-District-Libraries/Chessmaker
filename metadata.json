@@ -1,0 +1,6 @@
+{
+  "name": "Chess Piece Designer",
+  "description": "Design and export 3D-printable chess pieces by customizing profiles and special geometric details.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
