@@ -14,6 +14,7 @@ interface ProfileEditorProps {
   material: FilamentMaterial;
   showGrid: boolean;
   enforceOverhang?: boolean;
+  scaleMultiplier?: number;
 }
 
 export default function ProfileEditor({
@@ -25,7 +26,8 @@ export default function ProfileEditor({
   design,
   material,
   showGrid,
-  enforceOverhang
+  enforceOverhang,
+  scaleMultiplier = 50
 }: ProfileEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
@@ -112,13 +114,13 @@ export default function ProfileEditor({
     const height = canvas.height;
 
     // Clear background
-    ctx.fillStyle = '#0F1115'; // Match Geometric Balance background
+    ctx.fillStyle = '#f8fafc'; // Clean workspace background
     ctx.fillRect(0, 0, width, height);
 
     // 1. DRAW COORD GRID LINES
-    ctx.strokeStyle = '#1c212c';
+    ctx.strokeStyle = '#cbd5e1'; // Distinct slate-300 lines for solid contrast on light bg
     ctx.lineWidth = 1;
-    ctx.fillStyle = '#4b5563';
+    ctx.fillStyle = '#64748b'; // Muted slate text labels
     ctx.font = '10px monospace';
 
     // Horizontal grid increments
@@ -148,7 +150,7 @@ export default function ProfileEditor({
 
     // 2. REVOLVE LATHE AXIS LINE (X = 0)
     const { px: axisPx } = unitToPixel(0, 0, width, height);
-    ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)'; // Cyan axis
+    ctx.strokeStyle = 'rgba(37, 99, 235, 0.5)'; // Blueprint Blue dashed axis
     ctx.lineWidth = 2;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -158,7 +160,7 @@ export default function ProfileEditor({
     ctx.setLineDash([]); // Reset dash
 
     // Revolve label
-    ctx.fillStyle = '#06b6d4';
+    ctx.fillStyle = '#2563eb'; // Blueprint blue text
     ctx.fillText('REVOLVE AXIS (X=0)', axisPx + 8, 16);
 
     // 3. SHADE SOLID PROFILE INTERIOR & DRAW EXTRUDED/INTERPOLATED OUTLINE
@@ -167,8 +169,8 @@ export default function ProfileEditor({
 
       if (isKnight && knightEditMode === 'head') {
         // For the Knight Head, we have a closed loop. We fill and stroke the closed polygon!
-        ctx.fillStyle = 'rgba(245, 158, 11, 0.08)'; // Warm amber filling
-        ctx.strokeStyle = '#f59e0b'; // Amber outline
+        ctx.fillStyle = 'rgba(217, 119, 6, 0.08)'; // Warm amber filling
+        ctx.strokeStyle = '#d97706'; // Amber outline
         
         ctx.beginPath();
         const p0 = unitToPixel(activePoints[0].x, activePoints[0].y, width, height);
@@ -203,12 +205,12 @@ export default function ProfileEditor({
           ctx.lineTo(endPt.px, endPt.py);
           ctx.closePath();
 
-          ctx.fillStyle = hasEnforce ? 'rgba(16, 185, 129, 0.05)' : 'rgba(6, 182, 212, 0.08)'; // Emerald or Cyan backing
+          ctx.fillStyle = hasEnforce ? 'rgba(16, 185, 129, 0.05)' : 'rgba(37, 99, 235, 0.06)'; // Emerald or Blueprint Blue backing
           ctx.fill();
 
           // If enforce is enabled, draw the original unconstrained profile as a faint red-dotted line
           if (hasEnforce) {
-            ctx.strokeStyle = 'rgba(244, 63, 94, 0.35)'; // Faint rosy red
+            ctx.strokeStyle = 'rgba(220, 38, 38, 0.3)'; // Faint rosy red
             ctx.lineWidth = 1.5;
             ctx.setLineDash([3, 3]);
             ctx.beginPath();
@@ -250,20 +252,20 @@ export default function ProfileEditor({
               ctx.strokeStyle = '#10b981'; // Solid emerald
               ctx.lineWidth = 2.5;
             } else {
-              // If enforce is OFF, highlight violating overhangs in red
+              // If enforce is OFF, highlight violating overhangs in Laser Red
               if (isSegmentViolating(ptA, ptB)) {
-                ctx.strokeStyle = '#ef4444'; // Hot warning red
+                ctx.strokeStyle = '#dc2626'; // Hot laser warning red
                 ctx.lineWidth = 3;
               } else {
-                ctx.strokeStyle = '#06b6d4'; // Standard cyan
-                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#2563eb'; // Blueprint blue
+                ctx.lineWidth = 2.5;
               }
             }
             ctx.stroke();
           }
 
           // Draw the control segment lines (dotted) linking actual sparse points
-          ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+          ctx.strokeStyle = 'rgba(100, 116, 139, 0.3)'; // Slate lines
           ctx.lineWidth = 1;
           ctx.setLineDash([2, 4]);
           ctx.beginPath();
@@ -286,32 +288,32 @@ export default function ProfileEditor({
 
       // Outer ring for selected point
       if (isSelected) {
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#0f172a'; // Ink Dark selected ring
+        ctx.lineWidth = 2.0;
         ctx.beginPath();
         ctx.arc(px, py, 9, 0, 2 * Math.PI);
         ctx.stroke();
       }
 
       // Main dot
-      ctx.fillStyle = pt.isCurved ? '#10b981' : '#f43f5e'; // Green for curve, red for corner
+      ctx.fillStyle = pt.isCurved ? '#10b981' : '#dc2626'; // Green for curve, laser red for corner
       if (isKnight && knightEditMode === 'head') {
-        ctx.fillStyle = '#f59e0b'; // Amber for horse head control nodes
+        ctx.fillStyle = '#d97706'; // Amber for horse head control nodes
       }
       ctx.beginPath();
       ctx.arc(px, py, 5, 0, 2 * Math.PI);
       ctx.fill();
 
       // Border shine
-      ctx.strokeStyle = '#1e293b';
+      ctx.strokeStyle = '#ffffff'; // White border pop on light canvas grid
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(px, py, 5, 0, 2 * Math.PI);
       ctx.stroke();
 
       // Simple index label or name label beside the points
-      ctx.fillStyle = isSelected ? '#ffffff' : '#94a3b8';
-      ctx.font = '9px sans-serif';
+      ctx.fillStyle = isSelected ? '#0f172a' : '#64748b';
+      ctx.font = '9.5px sans-serif';
       
       const labelText = isKnight && knightEditMode === 'head' 
         ? `${index}: ${getKnightPointLabel(index)}` 
@@ -322,7 +324,7 @@ export default function ProfileEditor({
 
     // 5. RENDERS CURSORS AND COORDINATES IN HUD
     if (hoverPosition) {
-      ctx.fillStyle = '#94a3b8';
+      ctx.fillStyle = '#64748b'; // Soft slate coordination
       ctx.font = '10px monospace';
       ctx.fillText(
         `X: ${hoverPosition.x.toFixed(3)}  Y: ${hoverPosition.y.toFixed(3)}`,
@@ -410,17 +412,30 @@ export default function ProfileEditor({
       // Clicked in empty space - DESELECT or ADD a point along the vector lines!
       setSelectedPointId(null);
 
-      // We only allow adding points dynamically in Revolve profiles (Knight head has fixed 12 points topology)
-      if (isKnight && knightEditMode === 'head') return;
-
-      // Let's implement click-on-line and subdivide segment!
-      // Walk through all sequential pairs
       const units = pixelToUnit(px, py, rect.width, rect.height);
       const clickTolerance = 0.045; // Unit tolerance
 
+      // Build listing of segments we can insert points into
+      const segmentsToCheck: { pA: Point2D; pB: Point2D; insertIndex: number }[] = [];
       for (let i = 0; i < activePoints.length - 1; i++) {
-        const pA = activePoints[i];
-        const pB = activePoints[i + 1];
+        segmentsToCheck.push({
+          pA: activePoints[i],
+          pB: activePoints[i + 1],
+          insertIndex: i + 1
+        });
+      }
+      
+      // If the horse head is active, it forms a closed loop, so we must check the closing segment as well!
+      if (isKnight && knightEditMode === 'head') {
+        segmentsToCheck.push({
+          pA: activePoints[activePoints.length - 1],
+          pB: activePoints[0],
+          insertIndex: activePoints.length
+        });
+      }
+
+      for (const seg of segmentsToCheck) {
+        const { pA, pB, insertIndex } = seg;
 
         // Match point on line segment
         // Simple projection distance calculation
@@ -443,11 +458,11 @@ export default function ProfileEditor({
             id: newId,
             x: Number(projX.toFixed(3)),
             y: Number(projY.toFixed(3)),
-            isCurved: true // Default curved for smooth CAD splits
+            isCurved: false // Default to sharp corner for horse head, clean node splits
           };
 
           const clone = [...activePoints];
-          clone.splice(i + 1, 0, newPt);
+          clone.splice(insertIndex, 0, newPt);
           onChangePoints(clone);
           setSelectedPointId(newId);
           break;
@@ -466,16 +481,15 @@ export default function ProfileEditor({
   // Deletes active node
   const handleDeletePoint = () => {
     if (!selectedPointId) return;
-    
-    // Safety guard: cannot delete knight head points, they are a fixed 12-point topology!
-    if (isKnight && knightEditMode === 'head') return;
 
-    // Minimum 3 points required for valid revolve solids
+    // Minimum 3 points required for valid solids
     if (activePoints.length <= 3) return;
 
-    // Boundary points should not be deleted to avoid breaking closures
-    if (selectedPointId === activePoints[0].id || selectedPointId === activePoints[activePoints.length - 1].id) {
-      return;
+    // Boundary points should not be deleted for revolve profiles to avoid breaking closures
+    if (!(isKnight && knightEditMode === 'head')) {
+      if (selectedPointId === activePoints[0].id || selectedPointId === activePoints[activePoints.length - 1].id) {
+        return;
+      }
     }
 
     const filtered = activePoints.filter(p => p.id !== selectedPointId);
@@ -496,17 +510,17 @@ export default function ProfileEditor({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#161920] border border-slate-800 rounded-xl p-5 shadow-xl">
+    <div className="flex flex-col h-full bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm">
       {/* HEADER CONTROLS */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3.5 border-b border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3.5 border-b border-slate-200">
         <div>
-          <h2 className="text-xs font-display font-bold text-slate-100 flex items-center gap-2 uppercase tracking-wide">
+          <h2 className="text-xs font-display font-bold text-slate-900 flex items-center gap-2 uppercase tracking-wide">
             <span>2D CAD Profile Designer</span>
-            <span className="text-[10px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2.5 py-0.5 rounded-full uppercase font-mono font-extrabold">
+            <span className="text-[10px] bg-blue-550/10 bg-blue-50 text-blue-600 border border-blue-100 px-2.5 py-0.5 rounded-full uppercase font-mono font-extrabold">
               {type}
             </span>
           </h2>
-          <p className="text-[11px] text-slate-400 mt-0.5">
+          <p className="text-[11px] text-slate-500 mt-0.5">
             {isKnight && knightEditMode === 'head' 
               ? 'Stylize the side profile of the horse. Drag any of the 12 key points.'
               : 'Add nodes by clicking on the line. Drag nodes to reshape and lathe.'
@@ -517,15 +531,15 @@ export default function ProfileEditor({
         <div className="flex items-center gap-2">
           {/* KNIGHT TOGGLE BUTTONS */}
           {isKnight && (
-            <div className="flex border border-slate-800 bg-[#0F1115] p-0.5 rounded-lg mr-2">
+            <div className="flex border border-slate-200 bg-slate-50 p-0.5 rounded-lg mr-2">
               <button
                 id="knight-edit-head"
                 type="button"
                 onClick={() => setKnightEditMode('head')}
                 className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                   knightEditMode === 'head'
-                    ? 'bg-amber-600/20 text-amber-400 border border-amber-500/35 shadow-sm'
-                    : 'text-slate-450 hover:text-slate-200 border border-transparent'
+                    ? 'bg-white text-amber-700 border border-slate-200 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 border border-transparent'
                 }`}
               >
                 Horse Head
@@ -536,8 +550,8 @@ export default function ProfileEditor({
                 onClick={() => setKnightEditMode('base')}
                 className={`text-[11px] font-semibold px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                   knightEditMode === 'base'
-                    ? 'bg-cyan-500 text-slate-950 font-bold shadow-sm border border-transparent'
-                    : 'text-slate-450 hover:text-slate-200 border border-transparent'
+                    ? 'bg-white text-blue-600 border border-slate-200 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 border border-transparent'
                 }`}
               >
                 Round Base
@@ -549,7 +563,7 @@ export default function ProfileEditor({
             id="reset-active-profile"
             type="button"
             onClick={onReset}
-            className="flex items-center gap-1.5 text-[11px] bg-slate-900 hover:bg-slate-850 text-slate-300 font-bold px-3 py-1.5 rounded-lg border border-slate-800 hover:border-slate-700 hover:text-white transition-all cursor-pointer"
+            className="flex items-center gap-1.5 text-[11px] bg-white hover:bg-slate-50 text-slate-700 font-bold px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 hover:text-slate-900 transition-all cursor-pointer shadow-sm"
             title="Restore default archetype dimensions"
           >
             <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
@@ -560,7 +574,7 @@ export default function ProfileEditor({
 
       <div className="flex-grow flex flex-col gap-4 relative">
         {/* CANVAS EDITOR STAGE */}
-        <div className="flex-grow relative flex items-center justify-center bg-[#0F1115] bg-grid-pattern rounded-xl border border-slate-800/50 overflow-hidden min-h-[460px] shadow-inner select-none">
+        <div className="flex-grow relative flex items-center justify-center bg-white bg-grid-pattern rounded-xl border border-slate-200 shadow-inner overflow-hidden min-h-[460px] select-none">
           <canvas
             ref={canvasRef}
             width={460}
@@ -575,18 +589,18 @@ export default function ProfileEditor({
 
           {/* HELP OVERLAY POP */}
           <div className="absolute top-2.5 right-2.5 group pointer-events-auto">
-            <div className="p-1.5 bg-slate-900/90 backdrop-blur border border-slate-800 rounded-full cursor-pointer hover:bg-slate-800 hover:text-white text-slate-400">
+            <div className="p-1.5 bg-white/95 backdrop-blur border border-slate-200 rounded-full cursor-pointer hover:bg-slate-50 hover:text-slate-900 text-slate-500 shadow-sm">
               <HelpCircle className="w-4 h-4" />
             </div>
-            <div className="absolute right-0 top-8 w-60 p-3.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 z-50 shadow-xl leading-relaxed">
-              <p className="font-bold mb-1.5 text-slate-100 uppercase tracking-wider text-[10px] text-cyan-400">CAD Editor Tips:</p>
+            <div className="absolute right-0 top-8 w-60 p-3.5 rounded-lg bg-white border border-slate-200 text-xs text-slate-700 opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-200 z-50 shadow-xl leading-relaxed">
+              <p className="font-bold mb-1.5 text-slate-900 uppercase tracking-wider text-[10px] text-blue-600">CAD Editor Tips:</p>
               {isKnight && knightEditMode === 'head' ? (
-                <ul className="list-disc pl-4 space-y-1 text-slate-300 text-[11px]">
+                <ul className="list-disc pl-4 space-y-1 text-slate-600 text-[11px]">
                   <li>The Knight head uses a custom template with 12 linked anatomy points.</li>
                   <li>Drag the ears, chest, chin, nose, and mane points to sculpt!</li>
                 </ul>
               ) : (
-                <ul className="list-disc pl-4 space-y-1 text-slate-300 text-[11px]">
+                <ul className="list-disc pl-4 space-y-1 text-slate-600 text-[11px]">
                   <li>Click directly **on a line** to add a new point node anywhere.</li>
                   <li>Click a point node circle to select it for adjustments.</li>
                   <li>Hover near nodes to read precise sub-millimeter CAD coordinates.</li>
@@ -598,15 +612,15 @@ export default function ProfileEditor({
           {/* PIP 3D PREVIEW CORNER VIEWPORT */}
           <div className="absolute bottom-3 right-3 flex flex-col items-end gap-1.5 z-30 pointer-events-auto">
             {showMini3D ? (
-              <div className="relative w-[190px] h-[190px] shadow-2xl rounded-2xl overflow-hidden border border-slate-800 bg-[#0F1115] hover:border-cyan-500/35 transition-all flex flex-col">
+              <div className="relative w-[190px] h-[190px] shadow-2xl rounded-2xl overflow-hidden border border-slate-200 bg-white hover:border-blue-500/35 transition-all flex flex-col">
                 {/* Header minimize click overlay */}
                 <div 
                   id="pip-3d-minimize"
                   onClick={() => setShowMini3D(false)}
-                  className="absolute top-2 right-2 z-40 bg-[#161920]/95 hover:bg-slate-900 border border-slate-800 p-1.5 rounded-full cursor-pointer hover:text-white text-slate-400 shadow-md pointer-events-auto transition-all"
+                  className="absolute top-2 right-2 z-40 bg-white/95 hover:bg-slate-55 border border-slate-200 p-1.5 rounded-full cursor-pointer hover:text-slate-900 text-slate-500 shadow-md pointer-events-auto transition-all"
                   title="Minimize 3D View"
                 >
-                  <EyeOff className="w-3.5 h-3.5 text-slate-400 hover:text-cyan-450" />
+                  <EyeOff className="w-3.5 h-3.5 text-slate-400 hover:text-blue-600" />
                 </div>
                 <div className="flex-1 w-full h-full min-h-0 bg-transparent">
                   <ThreePreview
@@ -621,10 +635,10 @@ export default function ProfileEditor({
                 id="pip-3d-restore"
                 type="button"
                 onClick={() => setShowMini3D(true)}
-                className="bg-[#12151c]/95 hover:bg-slate-900 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 hover:text-white px-3 py-2 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-xl cursor-pointer pointer-events-auto"
+                className="bg-white/95 hover:bg-slate-50 border border-slate-200 hover:border-blue-500/35 text-blue-600 hover:text-blue-700 px-3 py-2 rounded-xl flex items-center gap-1.5 text-xs font-bold transition-all shadow-md cursor-pointer pointer-events-auto"
                 title="Restore 3D View"
               >
-                <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                <Eye className="w-3.5 h-3.5 text-blue-600" />
                 <span className="font-display uppercase tracking-wider text-[10px]">Show 3D View</span>
               </button>
             )}
@@ -632,61 +646,62 @@ export default function ProfileEditor({
         </div>
 
         {/* PROPERTIES AND ACTION CONTROLS - SITS UNDER THE CAD CANVAS DISPLAY */}
-        <div className="bg-[#0F1115] border border-slate-800/80 p-4 rounded-xl flex items-center justify-between min-h-[64px]">
+        <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center justify-between min-h-[64px] shadow-sm">
           {selectedPoint ? (
             <div className="flex flex-wrap items-center justify-between w-full gap-4 text-xs">
               <div className="flex items-center gap-4">
-                <div className="flex flex-col border-r border-slate-800/80 pr-4">
-                  <span className="text-[9px] text-slate-500 uppercase font-mono font-bold tracking-widest leading-none">Node Coords</span>
-                  <span className="font-mono text-cyan-400 font-bold mt-1 text-[13px]">
-                    X: {(selectedPoint.x * 50).toFixed(1)} mm • Y: {(selectedPoint.y * 50).toFixed(1)} mm
+                <div className="flex flex-col border-r border-slate-200 pr-4">
+                  <span className="text-[9px] text-slate-400 uppercase font-mono font-bold tracking-widest leading-none">Node Coords</span>
+                  <span className="font-mono text-blue-600 font-bold mt-1 text-[13px]">
+                    X: {(selectedPoint.x * scaleMultiplier).toFixed(1)} mm • Y: {(selectedPoint.y * scaleMultiplier).toFixed(1)} mm
                   </span>
                 </div>
                 
                 {isKnight && knightEditMode === 'head' ? (
                   <div className="flex flex-col">
-                    <span className="text-[8px] uppercase tracking-wider text-slate-500 font-bold font-mono leading-none">Anatomy Part</span>
-                    <span className="text-xs text-amber-400 font-semibold uppercase leading-snug mt-1">
+                    <span className="text-[8px] uppercase tracking-wider text-slate-400 font-bold font-mono leading-none">Anatomy Part</span>
+                    <span className="text-xs text-amber-700 font-extrabold uppercase leading-snug mt-1">
                       {getKnightPointLabel(activePoints.indexOf(selectedPoint))}
                     </span>
                   </div>
                 ) : null}
-              </div>
-
-              {!(isKnight && knightEditMode === 'head') ? (
-                <div className="flex items-center gap-2.5">
+              </div>              <div className="flex items-center gap-2.5">
+                {!(isKnight && knightEditMode === 'head') ? (
                   <button
                     id="float-curve-toggle"
                     type="button"
                     onClick={handleToggleCurve}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border shadow-sm ${
                       selectedPoint.isCurved
-                        ? 'bg-emerald-550/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-                        : 'bg-[#181d28] border-slate-800 text-slate-300 hover:bg-slate-850 hover:text-white'
+                        ? 'bg-emerald-50 border-emerald-250 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-white border-slate-200 text-slate-750 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
                     <span>Segment Mode:</span>
-                    <span className="px-1.5 py-0.5 rounded bg-slate-950 border border-slate-850 font-mono text-[9px] uppercase font-bold opacity-90">
+                    <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono text-[9px] uppercase font-bold opacity-90 text-slate-700">
                       {selectedPoint.isCurved ? 'Smooth' : 'Straight'}
                     </span>
                   </button>
+                ) : null}
 
-                  <button
-                    id="float-delete-action"
-                    type="button"
-                    onClick={handleDeletePoint}
-                    disabled={selectedPointId === activePoints[0].id || selectedPointId === activePoints[activePoints.length-1].id}
-                    className="flex items-center gap-1.5 text-xs bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20 hover:text-white py-1.5 px-3 rounded-lg transition-all font-semibold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    <Trash className="w-3.5 h-3.5" />
-                    Delete Node
-                  </button>
-                </div>
-              ) : null}
+                <button
+                  id="float-delete-action"
+                  type="button"
+                  onClick={handleDeletePoint}
+                  disabled={
+                    activePoints.length <= 3 ||
+                    (!(isKnight && knightEditMode === 'head') && (selectedPointId === activePoints[0].id || selectedPointId === activePoints[activePoints.length - 1].id))
+                  }
+                  className="flex items-center gap-1.5 text-xs bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white border border-rose-200 hover:border-rose-300 py-1.5 px-3 rounded-lg transition-all font-semibold cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Trash className="w-3.5 h-3.5" />
+                  Delete Node
+                </button>
+              </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-xs text-slate-400 select-none">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500/40 animate-pulse" />
+            <div className="flex items-center gap-2 text-xs text-slate-500 select-none">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500/40 animate-pulse" />
               <span>Click any node circle to edit coordinates • Double-click line to insert node</span>
             </div>
           )}

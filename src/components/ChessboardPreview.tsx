@@ -23,7 +23,7 @@ export default function ChessboardPreview({ pieces, enforceOverhang }: Chessboar
     const height = containerRef.current.clientHeight || 500;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0c10); // Very deep charcoal night
+    scene.background = new THREE.Color(0xf8fafc); // Pristine Slate-50 workspace background
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 20);
@@ -247,11 +247,11 @@ export default function ChessboardPreview({ pieces, enforceOverhang }: Chessboar
   }, [pieces, enforceOverhang]);
 
   return (
-    <div className="relative w-full h-full min-h-[400px] flex-grow select-none rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
+    <div className="relative w-full h-full min-h-[400px] flex-grow select-none rounded-xl overflow-hidden bg-white border border-slate-200 shadow-sm">
       <div ref={containerRef} className="w-full h-full" id="situ-board-preview" />
-      <div className="absolute bottom-3 left-3 bg-slate-900/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-700 pointer-events-none">
-        <p className="text-[10px] uppercase tracking-wider text-amber-500 font-bold">BOARD PREVIEW IN SITU</p>
-        <p className="text-[11px] text-slate-300 font-mono">
+      <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-200 shadow-md pointer-events-none">
+        <p className="text-[10px] uppercase tracking-wider text-blue-600 font-bold">BOARD PREVIEW IN SITU</p>
+        <p className="text-[11px] text-slate-600 font-mono">
           Interactive full court layout • Left-click & Drag to rotate • Scroll to zoom
         </p>
       </div>

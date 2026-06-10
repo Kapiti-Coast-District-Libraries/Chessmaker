@@ -46,7 +46,24 @@ export default function App() {
 
   const activeDesign = pieces[selectedPiece];
 
-  // Helper to calculate piece height based on actual mesh coordinates in CAD designer (1.0 CAD unit = 50.0 mm)
+  // Calculate proportional scale multiplier so that the King is always exactly 65mm in height, and others scale from there.
+  const getProportionalScale = () => {
+    const meshKing = generatePieceMesh(pieces.king, 6, enforceOverhang);
+    let kingMinY = Infinity;
+    let kingMaxY = -Infinity;
+    const verts = meshKing.vertices;
+    for (let i = 1; i < verts.length; i += 3) {
+      const yVal = verts[i];
+      if (yVal < kingMinY) kingMinY = yVal;
+      if (yVal > kingMaxY) kingMaxY = yVal;
+    }
+    const kingRawHeight = (kingMinY === Infinity || kingMaxY === -Infinity) ? 1.88 : (kingMaxY - kingMinY);
+    return 65 / kingRawHeight;
+  };
+
+  const scaleMultiplier = getProportionalScale();
+
+  // Helper to calculate piece height based on actual mesh coordinates scaled dynamically from king reference
   const getPieceHeightMm = (design: PieceDesign, overhangOption: boolean) => {
     const meshData = generatePieceMesh(design, 6, overhangOption);
     let minY = Infinity;
@@ -58,7 +75,7 @@ export default function App() {
       if (yVal > maxY) maxY = yVal;
     }
     if (minY === Infinity || maxY === -Infinity) return 50;
-    return Math.round((maxY - minY) * 50);
+    return Math.round((maxY - minY) * scaleMultiplier);
   };
 
   const scaleMm = getPieceHeightMm(activeDesign, enforceOverhang);
@@ -110,14 +127,15 @@ export default function App() {
   const handleExportSTL = (typeToExport: PieceType) => {
     const targetDesign = pieces[typeToExport];
     const meshData = generatePieceMesh(targetDesign, 6, enforceOverhang);
-    const filename = `chess_designer_${typeToExport}_${scaleMm}mm.stl`;
-    const stlContent = exportToSTL(meshData.vertices, meshData.indices, typeToExport, scaleMm);
+    const heightMm = getPieceHeightMm(targetDesign, enforceOverhang);
+    const filename = `chess_designer_${typeToExport}_${heightMm}mm.stl`;
+    const stlContent = exportToSTL(meshData.vertices, meshData.indices, typeToExport, heightMm);
     downloadMeshFile(stlContent, filename);
   };
 
   // Helper to estimate filament print specs
   const getFilamentEstimate = () => {
-    const scaleFactor = scaleMm / 50; // default anchor weight
+    const scaleFactor = scaleMm / 65; // scaled relative to maximum King size reference
     let baseWeight = 8; // in grams
     switch (selectedPiece) {
       case 'pawn': baseWeight = 4; break;
@@ -142,7 +160,7 @@ export default function App() {
   const getMaxDiameter = () => {
     if (!activeDesign.profilePoints || activeDesign.profilePoints.length === 0) return '0.0';
     const maxVal = activeDesign.profilePoints.reduce((max, p) => p.x > max ? p.x : max, 0);
-    return (maxVal * 100).toFixed(1);
+    return (maxVal * 2 * scaleMultiplier).toFixed(1);
   };
 
   const getPieceUnicode = (type: PieceType): string => {
@@ -158,49 +176,53 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0F1115] text-slate-200 font-sans flex flex-col selection:bg-cyan-500/30 selection:text-white">
+    <div className="min-h-screen bg-slate-50/60 text-slate-900 font-sans flex flex-col selection:bg-blue-500/20 selection:text-blue-900">
       {/* GLOBAL HEADER BAR */}
-      <header className="h-14 border-b border-slate-800 bg-[#161920] px-6 flex items-center justify-between gap-4 z-40 select-none shrink-0">
+      <header className="h-14 border-b border-slate-200 bg-white px-6 flex items-center justify-between gap-4 z-40 select-none shrink-0 shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="w-8 h-8 bg-cyan-500 rounded flex items-center justify-center text-slate-950 font-bold shadow-sm">
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold shadow-sm">
             <span className="text-xl leading-none">♔</span>
           </div>
-          <div>
-            <h1 className="text-sm font-display font-bold tracking-tight text-slate-100 flex items-center gap-2">
-              LATHE<span className="text-cyan-500 underline underline-offset-4 decoration-2">CHESS</span> v2.0
-              <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-mono font-medium tracking-normal">CAM-READY</span>
-            </h1>
-            <p className="text-[10px] text-slate-400 hidden sm:block">Lathe profiles in 2D, carve custom features, and export watertight STL meshes</p>
+          <div className="flex flex-col">
+            <span className="text-[9px] font-sans font-bold uppercase tracking-[0.18em] text-blue-600 leading-none mb-1">
+              Kāpiti Libraries
+            </span>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-display font-medium tracking-tight text-slate-900">
+                LATHE<span className="font-bold text-blue-600 underline underline-offset-4 decoration-2">CHESS</span> <span className="font-mono text-[10px] text-slate-400">v2.0</span>
+              </h1>
+              <span className="text-[9px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded font-mono font-semibold tracking-normal">CAM-READY</span>
+            </div>
           </div>
         </div>
 
         {/* TOP LEVEL NAVIGATION AND GLOBAL RESTORE */}
         <div className="flex items-center gap-3">
-          <div className="flex bg-slate-800 rounded-md p-1">
+          <div className="flex bg-slate-100 border border-slate-200/60 rounded-md p-1">
             <button
               id="view-mode-editor"
               type="button"
               onClick={() => setViewMode('editor')}
-              className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-1.5 rounded transition-all ${
+              className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-1.5 rounded transition-all cursor-pointer ${
                 viewMode === 'editor'
-                  ? 'bg-slate-700 text-slate-100 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200/40'
+                  : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              <Grid className="w-3.5 h-3.5 text-cyan-400" />
+              <Grid className="w-3.5 h-3.5 text-blue-600" />
               CAD Editor
             </button>
             <button
               id="view-mode-board"
               type="button"
               onClick={() => setViewMode('board')}
-              className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-1.5 rounded transition-all ${
+              className={`flex items-center gap-1.5 text-xs font-semibold px-4 py-1.5 rounded transition-all cursor-pointer ${
                 viewMode === 'board'
-                  ? 'bg-slate-700 text-slate-100 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200/40'
+                  : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              <Eye className="w-3.5 h-3.5 text-cyan-400" />
+              <Eye className="w-3.5 h-3.5 text-blue-600" />
               Board Preview
             </button>
           </div>
@@ -209,10 +231,10 @@ export default function App() {
             id="reset-entire-set"
             type="button"
             onClick={handleResetAll}
-            className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 border-slate-700 border text-slate-300 hover:text-rose-400 transition-colors font-medium px-3 py-1.5 rounded-lg"
+            className="flex items-center gap-1.5 text-xs bg-white hover:bg-slate-50 border-slate-200 border text-slate-700 hover:text-rose-600 transition-colors font-medium px-3 py-1.5 rounded-lg shadow-sm cursor-pointer"
             title="Reset Chess templates back to default"
           >
-            <ListRestart className="w-3.5 h-3.5 text-slate-400" />
+            <ListRestart className="w-3.5 h-3.5 text-slate-400 animate-spin-slow" />
             Reset Set
           </button>
         </div>
@@ -221,40 +243,40 @@ export default function App() {
        {viewMode === 'board' ? (
         /* IN SITU BOARD PREVIEW FULL STAGE */
         <main className="flex-grow flex flex-col p-6 max-w-7xl mx-auto w-full gap-6 animate-fade-in">
-          <div className="flex flex-col md:flex-row items-stretch justify-between gap-6 bg-[#161920] border border-slate-800 rounded-2xl p-6 shadow-2xl">
+          <div className="flex flex-col md:flex-row items-stretch justify-between gap-6 bg-white border border-slate-205 rounded-2xl p-6 shadow-sm">
             <div className="max-w-md flex flex-col justify-between">
               <div>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded-full font-display">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-blue-605 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full font-display">
                   Virtual Showcase Board
                 </span>
-                <h2 className="text-xl font-display font-bold text-white mt-4 tracking-tight">Your Customized Chess Set</h2>
-                <p className="text-xs text-slate-300 mt-2 leading-relaxed">
+                <h2 className="text-xl font-display font-bold text-slate-904 text-slate-900 mt-4 tracking-tight">Your Customized Chess Set</h2>
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                   Every lathe profile, bishop notch, and knight anatomy sculpt you adjusted in the editor is compiled in real-time. 
                   They are mirrored below in custom contrasting maple ivory and deep shale stone textures.
                 </p>
 
-                <div className="mt-6 space-y-3.5 bg-slate-950 p-4 rounded-xl border border-slate-850">
-                  <h3 className="text-xs font-display font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5 text-cyan-400" /> Print Suite Checklist
+                <div className="mt-6 space-y-3.5 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <h3 className="text-xs font-display font-bold text-slate-705 text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-blue-600" /> Print Suite Checklist
                   </h3>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
                     Once you verify the proportions on the active board, you can batch download individual watertight 3D models.
                   </p>
                   <div className="grid grid-cols-2 gap-2 text-center">
-                    <div className="bg-slate-900 border border-slate-800 rounded-lg p-2 font-mono">
-                      <div className="text-[9px] text-slate-500 font-semibold">SET PIECES</div>
-                      <div className="text-xs font-extrabold text-cyan-400">32 Total</div>
+                    <div className="bg-white border border-slate-150 rounded-lg p-2 font-mono">
+                      <div className="text-[9px] text-slate-400 font-semibold">SET PIECES</div>
+                      <div className="text-xs font-extrabold text-blue-600">32 Total</div>
                     </div>
-                    <div className="bg-slate-900 border border-slate-800 rounded-lg p-2 font-mono">
-                      <div className="text-[9px] text-slate-500 font-semibold">SCALE ANCHOR</div>
-                      <div className="text-xs font-extrabold text-cyan-400">1:1 Millimeter</div>
+                    <div className="bg-white border border-slate-150 rounded-lg p-2 font-mono">
+                      <div className="text-[9px] text-slate-400 font-semibold">SCALE ANCHOR</div>
+                      <div className="text-xs font-extrabold text-blue-600">1:1 Millimeter</div>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* BATCH DOWNLOADS */}
-              <div className="mt-8 border-t border-slate-800 pt-6">
+              <div className="mt-8 border-t border-slate-200 pt-6">
                 <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-3 block font-display">Export Models</span>
                 <div className="grid grid-cols-2 gap-2">
                   {Object.keys(pieces).map(pk => {
@@ -265,13 +287,13 @@ export default function App() {
                         id={`export-btn-${type}`}
                         type="button"
                         onClick={() => handleExportSTL(type)}
-                        className="flex items-center justify-between bg-slate-950 hover:bg-slate-900 border border-slate-850 hover:border-cyan-500/40 rounded-lg p-2.5 text-xs font-semibold text-slate-200 hover:text-cyan-400 transition-all capitalize cursor-pointer"
+                        className="flex items-center justify-between bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-blue-300 rounded-lg p-2.5 text-xs font-bold text-slate-705 text-slate-800 hover:text-blue-600 transition-all capitalize cursor-pointer shadow-sm"
                       >
                         <span className="flex items-center gap-1.5">
-                          <span className="text-slate-500 font-normal">{getPieceUnicode(type)}</span>
+                          <span className="text-slate-405 text-slate-500 font-normal">{getPieceUnicode(type)}</span>
                           {type} STL
                         </span>
-                        <Download className="w-3.5 h-3.5 text-cyan-500" />
+                        <Download className="w-3.5 h-3.5 text-blue-600" />
                       </button>
                     );
                   })}
@@ -289,8 +311,8 @@ export default function App() {
         /* STANDARD 2D CAD EDITOR + LIVE 3D PREVIEW */
         <main className="flex-grow grid grid-cols-1 lg:grid-cols-12 gap-5 px-6 py-5 max-w-[1600px] mx-auto w-full">
           {/* LEFT: PIECE SELECTOR NAVIGATION BAR */}
-          <nav className="lg:col-span-2 flex lg:flex-col gap-2 overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0 scrollbar-none bg-[#161920] p-4 rounded-xl border border-slate-805">
-            <p className="hidden lg:block text-[10px] font-bold tracking-widest text-slate-500 uppercase px-2 mb-1.5 font-display">Chess Pieces</p>
+          <nav className="lg:col-span-2 flex lg:flex-col gap-2 overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0 scrollbar-none bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <p className="hidden lg:block text-[10px] font-bold tracking-widest text-slate-400 uppercase px-2 mb-1.5 font-display">Chess Pieces</p>
             {(['pawn', 'rook', 'knight', 'bishop', 'queen', 'king'] as PieceType[]).map(type => {
               const active = selectedPiece === type;
               return (
@@ -301,18 +323,18 @@ export default function App() {
                   onClick={() => setSelectedPiece(type)}
                   className={`flex items-center gap-3 w-full text-left p-3 rounded-xl transition-all border text-xs font-semibold shrink-0 lg:shrink cursor-pointer select-none ${
                     active
-                      ? 'ring-2 ring-cyan-500 bg-cyan-500/10 text-cyan-400 border-transparent shadow-md font-display'
-                      : 'bg-slate-900/50 hover:bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200'
+                      ? 'ring-2 ring-blue-600 bg-blue-50 text-blue-600 border-transparent shadow-sm font-display'
+                      : 'bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   <div className={`w-8 h-8 flex items-center justify-center rounded-lg text-lg ${
-                    active ? 'bg-cyan-500 text-slate-950 font-bold shadow' : 'bg-slate-950 text-slate-400 border border-slate-800'
+                    active ? 'bg-blue-600 text-white font-bold shadow' : 'bg-slate-50 text-slate-500 border border-slate-200'
                   }`}>
                     {getPieceUnicode(type)}
                   </div>
                   <div className="flex-grow">
-                    <div className={`capitalize font-bold ${active ? 'text-cyan-400' : 'text-slate-200'}`}>{type}</div>
-                    <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                    <div className={`capitalize font-bold ${active ? 'text-blue-600' : 'text-slate-805 text-slate-800'}`}>{type}</div>
+                    <div className="text-[10px] text-slate-400 font-normal mt-0.5">
                       {type === 'knight' ? 'Extruded Sculpt' : 'Lathe Revolve'}
                     </div>
                   </div>
@@ -335,54 +357,55 @@ export default function App() {
               material={material}
               showGrid={showGrid}
               enforceOverhang={enforceOverhang}
+              scaleMultiplier={scaleMultiplier}
             />
           </section>
 
           {/* RIGHT: CAD PRINT PARAMETERS & CONFIG PANELS */}
           <section className="lg:col-span-3 flex flex-col gap-4">
             {/* CALIBRATOR CONTROLS CARD */}
-            <div className="bg-[#161920] border border-slate-800 rounded-xl p-5 space-y-4 shadow-xl">
+            <div className="bg-white border border-slate-205 rounded-xl p-5 space-y-4 shadow-sm">
               <div>
-                <h3 className="text-xs font-display font-bold uppercase tracking-widest text-slate-400 mb-3.5 flex items-center gap-1.5">
-                  <Settings2 className="w-3.5 h-3.5 text-cyan-400" /> Shape Carvings & Settings
+                <h3 className="text-xs font-display font-bold uppercase tracking-widest text-slate-800 mb-3.5 flex items-center gap-1.5">
+                  <Settings2 className="w-3.5 h-3.5 text-blue-600" /> Shape Carvings & Settings
                 </h3>
 
                 {/* Grid Bed Switcher Control in settings box */}
-                <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-850/80 mb-2">
-                  <label htmlFor="bed-grid-toggle" className="text-xs font-semibold text-slate-300 cursor-pointer select-none">Show 3D Print Bed Grid</label>
+                <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 mb-2">
+                  <label htmlFor="bed-grid-toggle" className="text-xs font-semibold text-slate-700 cursor-pointer select-none">Show 3D Print Bed Grid</label>
                   <input
                     id="bed-grid-toggle"
                     type="checkbox"
                     checked={showGrid}
                     onChange={(e) => setShowGrid(e.target.checked)}
-                    className="w-4 h-4 accent-cyan-500 rounded cursor-pointer pointer-events-auto"
+                    className="w-4 h-4 accent-blue-600 rounded cursor-pointer pointer-events-auto"
                   />
                 </div>
 
                 {/* Overhang Limiter Switcher Control under Grid Box */}
-                <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-850/80 mb-3.5">
+                <div className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 mb-3.5">
                   <div className="flex flex-col select-none">
-                    <label htmlFor="overhang-toggle" className="text-xs font-semibold text-slate-200 cursor-pointer leading-tight flex items-center gap-1.5">
+                    <label htmlFor="overhang-toggle" className="text-xs font-semibold text-slate-700 cursor-pointer leading-tight flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full ${enforceOverhang ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
                       Enforce 45° Overhang
                     </label>
-                    <span className="text-[9px] text-slate-500 font-medium leading-normal mt-0.5">Supportless 3D Print Alignment</span>
+                    <span className="text-[9px] text-slate-400 font-medium leading-normal mt-0.5">Supportless 3D Print Alignment</span>
                   </div>
                   <input
                     id="overhang-toggle"
                     type="checkbox"
                     checked={enforceOverhang}
                     onChange={(e) => setEnforceOverhang(e.target.checked)}
-                    className="w-4 h-4 accent-cyan-500 rounded cursor-pointer pointer-events-auto"
+                    className="w-4 h-4 accent-blue-600 rounded cursor-pointer pointer-events-auto"
                   />
                 </div>
 
                 {/* rook parameters */}
                 {selectedPiece === 'rook' && (
-                  <div className="space-y-3.5 bg-slate-950 p-3.5 rounded-lg border border-slate-850">
+                  <div className="space-y-3.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
                     <div className="flex items-center justify-between">
-                      <label htmlFor="rook-notch-count" className="text-xs font-semibold text-slate-300">Crenellation Count</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/30">
+                      <label htmlFor="rook-notch-count" className="text-xs font-semibold text-slate-700">Crenellation Count</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-105">
                         {activeDesign.rookNotchCount} Notches
                       </span>
                     </div>
@@ -400,13 +423,13 @@ export default function App() {
                           rook: { ...prev.rook, rookNotchCount: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
 
                     <div className="flex items-center justify-between">
-                      <label htmlFor="rook-notch-depth" className="text-xs font-semibold text-slate-300">Crenellation Depth</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
-                        {Math.round(activeDesign.rookNotchDepth * 50)} mm
+                      <label htmlFor="rook-notch-depth" className="text-xs font-semibold text-slate-705">Crenellation Depth</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
+                        {Math.round(activeDesign.rookNotchDepth * scaleMultiplier)} mm
                       </span>
                     </div>
                     <input
@@ -423,13 +446,13 @@ export default function App() {
                           rook: { ...prev.rook, rookNotchDepth: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
 
                     <div className="flex items-center justify-between">
-                      <label htmlFor="rook-bore-radius" className="text-xs font-semibold text-slate-300">Inner Core Hollow Radius</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
-                        {Math.round(activeDesign.rookBoreRadius * 50)} mm
+                      <label htmlFor="rook-bore-radius" className="text-xs font-semibold text-slate-705">Inner Core Hollow Radius</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
+                        {Math.round(activeDesign.rookBoreRadius * scaleMultiplier)} mm
                       </span>
                     </div>
                     <input
@@ -446,18 +469,18 @@ export default function App() {
                           rook: { ...prev.rook, rookBoreRadius: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
                   </div>
                 )}
 
                 {/* bishop parameters */}
                 {selectedPiece === 'bishop' && (
-                  <div className="space-y-3.5 bg-slate-950 p-3.5 rounded-lg border border-slate-850">
+                  <div className="space-y-3.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
                     <div className="flex items-center justify-between">
-                      <label htmlFor="bishop-slit-depth" className="text-xs font-semibold text-slate-300">Diagonal Slit Depth</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
-                        {Math.round(activeDesign.bishopSlitDepth * 50)} mm
+                      <label htmlFor="bishop-slit-depth" className="text-xs font-semibold text-slate-705">Diagonal Slit Depth</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
+                        {Math.round(activeDesign.bishopSlitDepth * scaleMultiplier)} mm
                       </span>
                     </div>
                     <input
@@ -474,13 +497,13 @@ export default function App() {
                           bishop: { ...prev.bishop, bishopSlitDepth: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
 
                     <div className="flex items-center justify-between">
-                      <label htmlFor="bishop-slit-width" className="text-xs font-semibold text-slate-300">Slit Clearance Width</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
-                        {Math.round(activeDesign.bishopSlitWidth * 50)} mm
+                      <label htmlFor="bishop-slit-width" className="text-xs font-semibold text-slate-705">Slit Clearance Width</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
+                        {Math.round(activeDesign.bishopSlitWidth * scaleMultiplier)} mm
                       </span>
                     </div>
                     <input
@@ -497,12 +520,12 @@ export default function App() {
                           bishop: { ...prev.bishop, bishopSlitWidth: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
 
                     <div className="flex items-center justify-between">
-                      <label htmlFor="bishop-slit-angle" className="text-xs font-semibold text-slate-300">Mitre Cut Tilt Angle</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
+                      <label htmlFor="bishop-slit-angle" className="text-xs font-semibold text-slate-705">Mitre Cut Tilt Angle</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
                         {activeDesign.bishopSlitAngle}° degree
                       </span>
                     </div>
@@ -520,17 +543,17 @@ export default function App() {
                           bishop: { ...prev.bishop, bishopSlitAngle: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
                   </div>
                 )}
 
                 {/* queen parameters */}
                 {selectedPiece === 'queen' && (
-                  <div className="space-y-3.5 bg-slate-950 p-3.5 rounded-lg border border-slate-850">
+                  <div className="space-y-3.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
                     <div className="flex items-center justify-between">
-                      <label htmlFor="queen-coronet-points" className="text-xs font-semibold text-slate-300">Crown Spike Counts</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
+                      <label htmlFor="queen-coronet-points" className="text-xs font-semibold text-slate-705">Crown Spike Counts</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
                         {activeDesign.queenCoronetPoints} Crowns
                       </span>
                     </div>
@@ -548,13 +571,13 @@ export default function App() {
                           queen: { ...prev.queen, queenCoronetPoints: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
 
                     <div className="flex items-center justify-between">
-                      <label htmlFor="queen-coronet-depth" className="text-xs font-semibold text-slate-300">Valley Spike Depth</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
-                        {Math.round(activeDesign.queenCoronetDepth * 50)} mm
+                      <label htmlFor="queen-coronet-depth" className="text-xs font-semibold text-slate-705">Valley Spike Depth</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
+                        {Math.round(activeDesign.queenCoronetDepth * scaleMultiplier)} mm
                       </span>
                     </div>
                     <input
@@ -571,18 +594,18 @@ export default function App() {
                           queen: { ...prev.queen, queenCoronetDepth: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
                   </div>
                 )}
 
                 {/* king parameters */}
                 {selectedPiece === 'king' && (
-                  <div className="space-y-3.5 bg-slate-950 p-3.5 rounded-lg border border-slate-850">
+                  <div className="space-y-3.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
                     <div className="flex items-center justify-between">
-                      <label htmlFor="king-cross-width" className="text-xs font-semibold text-slate-300">Cross Crown Span</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
-                        {Math.round(activeDesign.kingCrossWidth * 50)} mm
+                      <label htmlFor="king-cross-width" className="text-xs font-semibold text-slate-705">Cross Crown Span</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
+                        {Math.round(activeDesign.kingCrossWidth * scaleMultiplier)} mm
                       </span>
                     </div>
                     <input
@@ -599,13 +622,13 @@ export default function App() {
                           king: { ...prev.king, kingCrossWidth: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
 
                     <div className="flex items-center justify-between">
-                      <label htmlFor="king-cross-height" className="text-xs font-semibold text-slate-300">Cross Crest Height</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
-                        {Math.round(activeDesign.kingCrossHeight * 50)} mm
+                      <label htmlFor="king-cross-height" className="text-xs font-semibold text-slate-705">Cross Crest Height</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
+                        {Math.round(activeDesign.kingCrossHeight * scaleMultiplier)} mm
                       </span>
                     </div>
                     <input
@@ -622,18 +645,18 @@ export default function App() {
                           king: { ...prev.king, kingCrossHeight: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
                   </div>
                 )}
 
                 {/* knight parameters */}
                 {selectedPiece === 'knight' && (
-                  <div className="space-y-3.5 bg-slate-950 p-3.5 rounded-lg border border-slate-850">
+                  <div className="space-y-3.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
                     <div className="flex items-center justify-between">
-                      <label htmlFor="knight-thickness" className="text-xs font-semibold text-slate-300">Organic Head Width Thickness</label>
-                      <span className="text-xs font-mono text-cyan-400 font-bold">
-                        {Math.round(activeDesign.knightThickness * 50)} mm
+                      <label htmlFor="knight-thickness" className="text-xs font-semibold text-slate-705">Organic Head Width Thickness</label>
+                      <span className="text-xs font-mono text-blue-600 font-bold">
+                        {Math.round(activeDesign.knightThickness * scaleMultiplier)} mm
                       </span>
                     </div>
                     <input
@@ -650,62 +673,62 @@ export default function App() {
                           knight: { ...prev.knight, knightThickness: val }
                         }));
                       }}
-                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
                   </div>
                 )}
 
                 {/* pawn parameters */}
                 {selectedPiece === 'pawn' && (
-                  <div className="p-3.5 text-center bg-slate-950 border border-slate-850 rounded-lg text-[11px] text-slate-400 leading-relaxed">
-                    <p className="font-semibold text-slate-305 mb-1 text-cyan-400">Smooth Solid Revolve</p>
+                  <div className="p-3.5 text-center bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-500 leading-relaxed shadow-sm">
+                    <p className="font-semibold text-blue-600 mb-1 text-blue-600">Smooth Solid Revolve</p>
                     A beautiful, solid watertight revolve profile is fully sufficient for Pawns. Add node details directly inside the CAD Canvas Grid!
                   </div>
                 )}
               </div>
 
               {/* PIECE HEIGHT DISPLAY */}
-              <div className="border-t border-slate-800 pt-3.5">
+              <div className="border-t border-slate-200 pt-3.5">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-semibold text-slate-300">Piece Height (from CAD)</span>
-                  <span className="text-xs font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2 py-0.5 rounded font-extrabold">
+                  <span className="text-xs font-semibold text-slate-700">Piece Height (from CAD)</span>
+                  <span className="text-xs font-mono bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded font-extrabold">
                     {scaleMm} mm
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-500 leading-normal mb-3.5">
-                  Height is determined dynamically by the bounding coordinates drawn inside the CAD designer (1.0 CAD Unit = 50.0 mm). Adjust points vertically to change piece height.
+                  Height is scaled proportionally relative to the King piece being set to a maximum height of 65mm. Adjust profile heights to refine their proportional balance.
                 </p>
 
                 {/* DYNAMIC TELEMETRY HUD */}
-                <div className="grid grid-cols-3 gap-2 mt-3.5 bg-slate-950 p-2.5 rounded-lg border border-slate-850 text-center font-mono">
+                <div className="grid grid-cols-3 gap-2 mt-3.5 bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-center font-mono">
                   <div>
-                    <div className="text-[8px] text-slate-500 font-bold uppercase">Estimated Weight</div>
-                    <div className="text-[11px] text-slate-300 font-bold">{currentEstimates.weight}g PLA</div>
+                    <div className="text-[8px] text-slate-400 font-bold uppercase">Estimated Weight</div>
+                    <div className="text-[11px] text-slate-800 font-bold">{currentEstimates.weight}g PLA</div>
                   </div>
                   <div>
-                    <div className="text-[8px] text-slate-500 font-bold uppercase">Print Time</div>
-                    <div className="text-[11px] text-slate-300 font-bold">~{currentEstimates.timeMins} min</div>
+                    <div className="text-[8px] text-slate-400 font-bold uppercase">Print Time</div>
+                    <div className="text-[11px] text-slate-800 font-bold">~{currentEstimates.timeMins} min</div>
                   </div>
                   <div>
-                    <div className="text-[8px] text-slate-500 font-bold uppercase">Slice Layers</div>
-                    <div className="text-[11px] text-slate-300 font-bold">{currentEstimates.layers} layers</div>
+                    <div className="text-[8px] text-slate-400 font-bold uppercase">Slice Layers</div>
+                    <div className="text-[11px] text-slate-800 font-bold">{currentEstimates.layers} layers</div>
                   </div>
                 </div>
               </div>
 
               {/* PRIMARY STL DOWNLOAD EXPORTER */}
-              <div className="border-t border-slate-800 pt-4 flex flex-col gap-2">
+              <div className="border-t border-slate-200 pt-4 flex flex-col gap-2">
                 <button
                   id="export-active-stl"
                   type="button"
                   onClick={() => handleExportSTL(selectedPiece)}
-                  className="w-full flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 py-3 px-4 rounded-xl text-xs font-bold transition-all shadow-md active:translate-y-0.5 pointer-events-auto cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-xl text-xs font-bold transition-all shadow-md active:translate-y-0.5 pointer-events-auto cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   <span>Download STL Model (Ready to Print)</span>
                 </button>
                 <div className="flex items-center gap-1 justify-center text-[10px] text-slate-500">
-                  <Printer className="w-3.5 h-3.5 text-cyan-400" />
+                  <Printer className="w-3.5 h-3.5 text-blue-600" />
                   <span>Output is watertight, scaled 1:1 in millimeters</span>
                 </div>
               </div>
@@ -715,14 +738,14 @@ export default function App() {
       )}
 
       {/* Bottom Info Rail */}
-      <footer className="h-10 border-t border-slate-850 bg-[#161920] flex items-center justify-between px-6 text-[10px] font-mono text-slate-500 select-none shrink-0 mt-auto">
+      <footer className="h-10 border-t border-slate-200 bg-white flex items-center justify-between px-6 text-[10px] font-mono text-slate-500 select-none shrink-0 mt-auto">
         <div className="flex gap-8">
-          <span>Base Radius: {activeDesign.profilePoints[1] ? (activeDesign.profilePoints[1].x * 50).toFixed(1) : (activeDesign.profilePoints[0] ? (activeDesign.profilePoints[0].x * 50).toFixed(1) : '0.0')} mm</span>
+          <span>Base Radius: {activeDesign.profilePoints[1] ? (activeDesign.profilePoints[1].x * scaleMultiplier).toFixed(1) : (activeDesign.profilePoints[0] ? (activeDesign.profilePoints[0].x * scaleMultiplier).toFixed(1) : '0.0')} mm</span>
           <span>Height: {scaleMm} mm</span>
           <span>Max Diameter: {getMaxDiameter()} mm</span>
         </div>
-        <div className="flex gap-6 uppercase">
-          <span className="text-cyan-500/70">Project: LATHECHESS_V2</span>
+         <div className="flex gap-6 uppercase">
+          <span className="text-blue-600 font-extrabold">Kāpiti Libraries Lab</span>
           <span>Units: Metric (mm)</span>
           <span>Material: Resin High-Detail</span>
         </div>

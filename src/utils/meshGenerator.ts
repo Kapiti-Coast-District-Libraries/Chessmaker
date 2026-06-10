@@ -363,6 +363,8 @@ function generateKnightMesh(design: PieceDesign, enforceOverhang: boolean = fals
   const vertices: number[] = [];
   const indices: number[] = [];
 
+  const tMax = design.knightThickness; // Maximum base thickness of the cheek
+
   // 1. Separate revolve base of Knight (Y <= 0.6)
   // Filter the design profile points for bottom pedestal
   const pedestalPoints = design.profilePoints.filter(p => p.y <= 0.601);
@@ -378,12 +380,54 @@ function generateKnightMesh(design: PieceDesign, enforceOverhang: boolean = fals
   const bottomY = profile[0].y;
   const pedestalTopY = profile[profile.length - 1].y;
 
-  // Revolve the pedestal
+  const headPoints = design.knightSidePoints;
+
+  // Revolve the pedestal with a smooth loft transition to the horse neck's rectangular base profile
+  const kn0 = headPoints[0] || { x: -0.21, y: 0.60 };
+  const kn11 = headPoints[headPoints.length - 1] || { x: 0.20, y: 0.60 };
+  const xCenter = (kn0.x + kn11.x) / 2;
+  const xHalf = (kn11.x - kn0.x) / 2;
+
   for (let i = 0; i < profile.length; i++) {
     const pt = profile[i];
+    
+    // Blend from circular base to horse-matching rectangular base shape from y = 0.15 to y = pedestalTopY
+    const blendStart = 0.15;
+    const blendEnd = pedestalTopY;
+    const blend = Math.max(0, Math.min(1, (pt.y - blendStart) / (blendEnd - blendStart)));
+    
+    // Center of cross section transitions from (0, 0) to (xCenter, 0)
+    const cx = xCenter * blend;
+    
     for (let j = 0; j < segments; j++) {
       const theta = (j * 2 * Math.PI) / segments;
-      vertices.push(pt.x * Math.cos(theta), pt.y, pt.x * Math.sin(theta));
+      
+      const cosT = Math.cos(theta);
+      const sinT = Math.sin(theta);
+      
+      // 1. Circle boundary point (blend = 0)
+      const C_x = pt.x * cosT;
+      const C_z = pt.x * sinT;
+      
+      // 2. Rectangle boundary point (blend = 1, bounds: xHalf width, tMax / 2 thickness)
+      const A = xHalf;
+      const B = tMax / 2;
+      let r_rect = 0;
+      if (Math.abs(cosT) * B > Math.abs(sinT) * A) {
+        r_rect = A / Math.abs(cosT);
+      } else {
+        r_rect = B / Math.abs(sinT || 1e-6);
+      }
+      
+      const R_x = cx + r_rect * cosT;
+      const R_z = r_rect * sinT;
+      
+      // Build the morphed hybrid point
+      const px = C_x * (1.0 - blend) + R_x * blend;
+      const py = pt.y;
+      const pz = C_z * (1.0 - blend) + R_z * blend;
+      
+      vertices.push(px, py, pz);
     }
   }
 
@@ -410,18 +454,15 @@ function generateKnightMesh(design: PieceDesign, enforceOverhang: boolean = fals
 
   // Cap top of pedestal base
   const capTopBaseIndex = vertices.length / 3;
-  vertices.push(0, pedestalTopY, 0);
+  vertices.push(xCenter, pedestalTopY, 0);
   const offset = (profile.length - 1) * segments;
   for (let j = 0; j < segments; j++) {
     indices.push(capTopBaseIndex, offset + j, offset + (j + 1) % segments);
   }
 
-  // 2. Extrude the organic Knight Horse Head (Y > 0.6)
-  // Point mapping of the 12 key points describing side silhouette
-  const headPoints = design.knightSidePoints;
-  const tMax = design.knightThickness; // Maximum base thickness of the cheek
-
+  // 2. Extrude the organic Knight Horse Head (Y > 0.6) with exquisite edge filleting
   const headPointsStartOffset = vertices.length / 3;
+  const n = headPoints.length;
 
   // Function to calculate tapering width of the horse head based on point position
   const getTaper = (x: number, y: number): number => {
@@ -438,39 +479,112 @@ function generateKnightMesh(design: PieceDesign, enforceOverhang: boolean = fals
     return 1.0;
   };
 
-  // Add front face (+Z vertices)
-  for (let i = 0; i < headPoints.length; i++) {
-    const pt = headPoints[i];
-    const taper = getTaper(pt.x, pt.y);
-    const zVal = (tMax * taper) / 2;
-    vertices.push(pt.x, pt.y, zVal);
+  // Calculate inward normals of the CW knight side loop
+  const inwards: { x: number; y: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = (i - 1 + n) % n;
+    const next = (i + 1) % n;
+    const p = headPoints[i];
+    const pPrev = headPoints[prev];
+    const pNext = headPoints[next];
+    
+    const dx1 = p.x - pPrev.x;
+    const dy1 = p.y - pPrev.y;
+    const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1) || 1;
+    const ux1 = dx1 / len1;
+    const uy1 = dy1 / len1;
+    
+    const dx2 = pNext.x - p.x;
+    const dy2 = pNext.y - p.y;
+    const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) || 1;
+    const ux2 = dx2 / len2;
+    const uy2 = dy2 / len2;
+    
+    // Average clockwise right-hand normal (inwards)
+    const nx1 = uy1;
+    const ny1 = -ux1;
+    const nx2 = uy2;
+    const ny2 = -ux2;
+    
+    let nix = (nx1 + nx2) / 2;
+    let niy = (ny1 + ny2) / 2;
+    const nLen = Math.sqrt(nix * nix + niy * niy);
+    if (nLen > 0.0001) {
+      nix /= nLen;
+      niy /= nLen;
+    }
+    inwards.push({ x: nix, y: niy });
   }
 
-  // Add back face (-Z vertices)
-  const backFaceOffset = headPoints.length;
-  for (let i = 0; i < headPoints.length; i++) {
+  // Add 4 layers of vertices for smooth rounded fillets:
+  // Loop 0: Front cap (inset in X-Y, flat at max positive Z)
+  for (let i = 0; i < n; i++) {
     const pt = headPoints[i];
+    const isBottom = pt.y <= 0.601;
+    const pyAdjusted = isBottom ? pt.y - 0.02 : pt.y; // overlap by 0.02 (1mm) to guarantee watertight connection
     const taper = getTaper(pt.x, pt.y);
-    const zVal = -(tMax * taper) / 2;
-    vertices.push(pt.x, pt.y, zVal);
+    const tHalf = (tMax * taper) / 2;
+    const heightBlend = Math.max(0, Math.min(1, (pt.y - 0.6) / 0.15));
+    const rFillet = Math.min(0.025, tHalf * 0.4) * heightBlend;
+    
+    const px = pt.x + inwards[i].x * rFillet;
+    const py = pyAdjusted + inwards[i].y * rFillet;
+    const pz = tHalf;
+    vertices.push(px, py, pz);
+  }
+
+  // Loop 1: Front shoulder (outer boundary profile, stepped Z)
+  for (let i = 0; i < n; i++) {
+    const pt = headPoints[i];
+    const isBottom = pt.y <= 0.601;
+    const pyAdjusted = isBottom ? pt.y - 0.02 : pt.y; // overlap by 0.02 (1mm) to guarantee watertight connection
+    const taper = getTaper(pt.x, pt.y);
+    const tHalf = (tMax * taper) / 2;
+    const heightBlend = Math.max(0, Math.min(1, (pt.y - 0.6) / 0.15));
+    const rFillet = Math.min(0.025, tHalf * 0.4) * heightBlend;
+    
+    const px = pt.x;
+    const py = pyAdjusted;
+    const pz = Math.max(0, tHalf - rFillet);
+    vertices.push(px, py, pz);
+  }
+
+  // Loop 2: Back shoulder (outer boundary profile, stepped Z)
+  for (let i = 0; i < n; i++) {
+    const pt = headPoints[i];
+    const isBottom = pt.y <= 0.601;
+    const pyAdjusted = isBottom ? pt.y - 0.02 : pt.y; // overlap by 0.02 (1mm) to guarantee watertight connection
+    const taper = getTaper(pt.x, pt.y);
+    const tHalf = (tMax * taper) / 2;
+    const heightBlend = Math.max(0, Math.min(1, (pt.y - 0.6) / 0.15));
+    const rFillet = Math.min(0.025, tHalf * 0.4) * heightBlend;
+    
+    const px = pt.x;
+    const py = pyAdjusted;
+    const pz = -Math.max(0, tHalf - rFillet);
+    vertices.push(px, py, pz);
+  }
+
+  // Loop 3: Back cap (inset in X-Y, flat at max negative Z)
+  for (let i = 0; i < n; i++) {
+    const pt = headPoints[i];
+    const isBottom = pt.y <= 0.601;
+    const pyAdjusted = isBottom ? pt.y - 0.02 : pt.y; // overlap by 0.02 (1mm) to guarantee watertight connection
+    const taper = getTaper(pt.x, pt.y);
+    const tHalf = (tMax * taper) / 2;
+    const heightBlend = Math.max(0, Math.min(1, (pt.y - 0.6) / 0.15));
+    const rFillet = Math.min(0.025, tHalf * 0.4) * heightBlend;
+    
+    const px = pt.x + inwards[i].x * rFillet;
+    const py = pyAdjusted + inwards[i].y * rFillet;
+    const pz = -tHalf;
+    vertices.push(px, py, pz);
   }
 
   // Construct Triangulation for Front Face (counterclockwise)
-  // Based on the designed robust low-poly topology
-  const horseTriangles = [
-    [0, 11, 10],
-    [0, 10, 1],
-    [1, 10, 9],
-    [1, 9, 2],
-    [2, 9, 8],
-    [2, 8, 3],
-    [3, 8, 5],
-    [5, 8, 7],
-    [3, 5, 4],
-    [5, 7, 6]
-  ];
+  const horseTriangles = triangulatePolygon(headPoints);
 
-  // Append Front Triangles (looking from positive Z inside)
+  // Append Front Triangles (using Loop 0 vertices)
   for (const tri of horseTriangles) {
     indices.push(
       headPointsStartOffset + tri[0],
@@ -479,29 +593,50 @@ function generateKnightMesh(design: PieceDesign, enforceOverhang: boolean = fals
     );
   }
 
-  // Append Back Triangles (need flipped order to look correct from negative Z outside)
+  // Append Back Triangles (using Loop 3 vertices) with reversed order for correct back-facing normals
   for (const tri of horseTriangles) {
     indices.push(
-      headPointsStartOffset + backFaceOffset + tri[0],
-      headPointsStartOffset + backFaceOffset + tri[2],
-      headPointsStartOffset + backFaceOffset + tri[1]
+      headPointsStartOffset + 3 * n + tri[0],
+      headPointsStartOffset + 3 * n + tri[2],
+      headPointsStartOffset + 3 * n + tri[1]
     );
   }
 
-  // Build the Perimeter Side Walls (Quads bridging Front and Back face outline)
-  const n = headPoints.length;
+  // Build the Perimeter Side Walls and Filleted Corners (Quads bridging loops in sequence)
+  // Strip 1: Front Cap (Loop 0) to Front Shoulder (Loop 1)
   for (let i = 0; i < n; i++) {
     const next = (i + 1) % n;
+    const v0_curr = headPointsStartOffset + i;
+    const v0_next = headPointsStartOffset + next;
+    const v1_curr = headPointsStartOffset + n + i;
+    const v1_next = headPointsStartOffset + n + next;
+    
+    indices.push(v0_curr, v1_next, v1_curr);
+    indices.push(v0_curr, v0_next, v1_next);
+  }
 
-    const fCurr = headPointsStartOffset + i;
-    const fNext = headPointsStartOffset + next;
-    const bCurr = headPointsStartOffset + backFaceOffset + i;
-    const bNext = headPointsStartOffset + backFaceOffset + next;
+  // Strip 2: Front Shoulder (Loop 1) to Back Shoulder (Loop 2)
+  for (let i = 0; i < n; i++) {
+    const next = (i + 1) % n;
+    const v1_curr = headPointsStartOffset + n + i;
+    const v1_next = headPointsStartOffset + n + next;
+    const v2_curr = headPointsStartOffset + 2 * n + i;
+    const v2_next = headPointsStartOffset + 2 * n + next;
+    
+    indices.push(v1_curr, v2_next, v2_curr);
+    indices.push(v1_curr, v1_next, v2_next);
+  }
 
-    // Triangle 1: Front Curr -> Back Curr -> Back Next
-    indices.push(fCurr, bCurr, bNext);
-    // Triangle 2: Front Curr -> Back Next -> Front Next
-    indices.push(fCurr, bNext, fNext);
+  // Strip 3: Back Shoulder (Loop 2) to Back Cap (Loop 3)
+  for (let i = 0; i < n; i++) {
+    const next = (i + 1) % n;
+    const v2_curr = headPointsStartOffset + 2 * n + i;
+    const v2_next = headPointsStartOffset + 2 * n + next;
+    const v3_curr = headPointsStartOffset + 3 * n + i;
+    const v3_next = headPointsStartOffset + 3 * n + next;
+    
+    indices.push(v2_curr, v3_next, v3_curr);
+    indices.push(v2_curr, v2_next, v3_next);
   }
 
   // Calculate normals
@@ -680,4 +815,122 @@ export function downloadMeshFile(content: string, filename: string) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Robust 2D polygon triangulation using Ear Clipping algorithm
+ * Supports arbitrary convex/concave polygons and returns triangles
+ */
+export function triangulatePolygon(points: { x: number; y: number }[]): number[][] {
+  const n = points.length;
+  if (n < 3) return [];
+
+  const indices = Array.from({ length: n }, (_, i) => i);
+  const triangles: number[][] = [];
+
+  const isPointInTriangle = (
+    p: { x: number; y: number },
+    a: { x: number; y: number },
+    b: { x: number; y: number },
+    c: { x: number; y: number }
+  ) => {
+    const v0x = c.x - a.x;
+    const v0y = c.y - a.y;
+    const v1x = b.x - a.x;
+    const v1y = b.y - a.y;
+    const v2x = p.x - a.x;
+    const v2y = p.y - a.y;
+
+    const dot00 = v0x * v0x + v0y * v0y;
+    const dot01 = v0x * v1x + v0y * v1y;
+    const dot02 = v0x * v2x + v0y * v2y;
+    const dot11 = v1x * v1x + v1y * v1y;
+    const dot12 = v1x * v2x + v1y * v2y;
+
+    const denom = dot00 * dot11 - dot01 * dot01;
+    if (Math.abs(denom) < 1e-9) return false;
+
+    const u = (dot11 * dot02 - dot01 * dot12) / denom;
+    const v = (dot00 * dot12 - dot01 * dot02) / denom;
+
+    return u >= -1e-9 && v >= -1e-9 && (u + v) <= 1 + 1e-9;
+  };
+
+  // Determine standard clockwise shoelace winding
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const p1 = points[i];
+    const p2 = points[(i + 1) % n];
+    sum += (p2.x - p1.x) * (p2.y + p1.y);
+  }
+  const isClockwise = sum > 0;
+
+  let attempts = 0;
+  const maxAttempts = indices.length * indices.length;
+
+  while (indices.length > 3 && attempts < maxAttempts) {
+    attempts++;
+    let earFound = false;
+
+    for (let i = 0; i < indices.length; i++) {
+      const prevIdx = indices[(i - 1 + indices.length) % indices.length];
+      const currIdx = indices[i];
+      const nextIdx = indices[(i + 1) % indices.length];
+
+      const a = points[prevIdx];
+      const b = points[currIdx];
+      const c = points[nextIdx];
+
+      const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+      const convex = isClockwise ? (cross < -1e-9) : (cross > 1e-9);
+
+      if (!convex) continue;
+
+      let hasPointInside = false;
+      for (let j = 0; j < indices.length; j++) {
+        const checkIdx = indices[j];
+        if (checkIdx === prevIdx || checkIdx === currIdx || checkIdx === nextIdx) continue;
+        if (isPointInTriangle(points[checkIdx], a, b, c)) {
+          hasPointInside = true;
+          break;
+        }
+      }
+
+      if (!hasPointInside) {
+        triangles.push([prevIdx, currIdx, nextIdx]);
+        indices.splice(i, 1);
+        earFound = true;
+        break;
+      }
+    }
+
+    if (!earFound) {
+      // Fallback ear cut to avoid getting stuck if self-intersecting
+      const cutIdx = 1 % indices.length;
+      const prevIdx = indices[(cutIdx - 1 + indices.length) % indices.length];
+      const currIdx = indices[cutIdx];
+      const nextIdx = indices[(cutIdx + 1) % indices.length];
+      triangles.push([prevIdx, currIdx, nextIdx]);
+      indices.splice(cutIdx, 1);
+    }
+  }
+
+  if (indices.length === 3) {
+    triangles.push([indices[0], indices[1], indices[2]]);
+  }
+
+  // Double check all triangle winding represents CCW face direction in 2D
+  for (const tri of triangles) {
+    const a = points[tri[0]];
+    const b = points[tri[1]];
+    const c = points[tri[2]];
+    const cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    if (cross < 0) {
+      const temp = tri[1];
+      tri[1] = tri[2];
+      tri[2] = temp;
+    }
+  }
+
+  return triangles;
 }
